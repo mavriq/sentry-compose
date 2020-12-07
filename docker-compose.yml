@@ -1,0 +1,88 @@
+version: '2.4'
+
+volumes:
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/local/redis-data
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/local/postgres-data
+  sentry-files:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/local/sentry-files
+
+services:
+  redis:
+    container_name: redis
+    image: redis:${IMAGE_REDIS_VERSION}
+    restart: unless-stopped
+    volumes:
+    - redis-data:/data
+    environment:
+      TZ: Europe/Moscow
+  postgres:
+    container_name: postgres
+    image: postgres:${IMAGE_POSTGRES_VERSION}
+    restart: unless-stopped
+    volumes:
+    - postgres-data:/var/lib/postgresql/data:Z
+    environment:
+      TZ: Europe/Moscow
+      POSTGRES_USER: ${db_user}
+      POSTGRES_PASSWORD: ${db_pass}
+      POSTGRES_DB: ${db_name}
+  #
+  sentry-worker:
+    container_name: sentry-worker
+    build:
+      context: .
+      dockerfile: sentry.Dockerfile
+      args:
+        IMAGE_SENTRY_VERSION: ${IMAGE_SENTRY_VERSION}
+    image: local-sentry:${IMAGE_SENTRY_VERSION}
+    restart: unless-stopped
+    env_file:
+    - ./local/env/sentry.env
+    environment:
+      TZ: Europe/Moscow
+      SENTRY_POSTGRES_HOST: postgres
+      SENTRY_DB_USER: ${db_user}
+      SENTRY_DB_PASSWORD: ${db_pass}
+      SENTRY_DB_NAME: ${db_name}
+    volumes:
+    - sentry-files:/files
+    command:
+    - run
+    - worker 
+  sentry-cron:
+    container_name: sentry-cron
+    restart: unless-stopped
+    extends:
+      file: ./docker-compose.yml
+      service: sentry-worker
+    command:
+    - run
+    - cron
+
+  sentry:
+    container_name: sentry
+    restart: unless-stopped
+    extends:
+      file: ./docker-compose.yml
+      service: sentry-worker
+    command:
+    - run
+    - web
+    environment:
+      VIRTUAL_HOST: ${SENTRY_VIRTUAL_HOST}
+      VIRTUAL_PORT: '9000'
+      LETSENCRYPT_HOST: ${SENTRY_LETSENCRYPT_HOST}
